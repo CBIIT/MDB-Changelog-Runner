@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from mdb_changelog_runner import ChangelogExecutionError, ChangelogExecutor
@@ -84,6 +86,23 @@ def test_execute_runs_changesets_in_order_without_metadata(tmp_path):
     assert tx.runs[1] == ("CREATE (b:test {handle: 'B'})", {})
     assert len(tx.runs) == 2
     assert all("_changelog" not in query for query, _ in tx.runs)
+
+
+def test_execute_logs_changeset_and_total_runtime(tmp_path, caplog):
+    tx = FakeTx()
+    executor = ChangelogExecutor(FakeSession(tx))
+
+    with caplog.at_level(logging.INFO, logger="mdb_changelog_runner"):
+        executor.execute(write_changelog(tmp_path), "s3://bucket/changelog.xml")
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert "Found 2 changesets in changelog file" in messages
+    assert any(message.startswith("Changelog 0 took ") for message in messages)
+    assert any(message.startswith("Changelog 1 took ") for message in messages)
+    assert "Completed changelog update 1" in messages
+    assert "Completed changelog update 2" in messages
+    assert "Changelog runner finished." in messages
+    assert any(message.startswith("TOTAL RUN TIME: ") for message in messages)
 
 
 def test_execute_rolls_back_and_writes_no_metadata_on_failure(tmp_path):
