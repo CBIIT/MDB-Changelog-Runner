@@ -70,3 +70,25 @@ def test_parse_rejects_invalid_json_params(tmp_path):
 
     with pytest.raises(ChangelogParseError, match="invalid JSON params"):
         parse(path)
+
+
+def test_parse_rejects_xml_entities(tmp_path):
+    path = tmp_path / "malicious_changelog.xml"
+    path.write_text(
+        """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE databaseChangeLog [
+  <!ENTITY payload "expanded">
+]>
+<databaseChangeLog
+  xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+  xmlns:neo4j="http://www.liquibase.org/xml/ns/dbchangelog-ext">
+  <changeSet id="1" author="Alice">
+    <neo4j:cypher>RETURN "&payload;"</neo4j:cypher>
+  </changeSet>
+</databaseChangeLog>
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ChangelogParseError, match="unsafe XML"):
+        parse(path)

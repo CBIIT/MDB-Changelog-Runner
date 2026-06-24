@@ -4,7 +4,9 @@ import json
 import textwrap
 from pathlib import Path
 from typing import Any, Iterable
-from xml.etree import ElementTree
+
+from defusedxml import ElementTree
+from defusedxml.common import DefusedXmlException
 
 from mdb_changelog_runner.errors import ChangelogParseError
 from mdb_changelog_runner.types import Changeset
@@ -19,6 +21,9 @@ def parse(changelog_path: str | Path) -> list[Changeset]:
     path = Path(changelog_path)
     try:
         root = ElementTree.parse(path).getroot()
+    except DefusedXmlException as exc:
+        msg = f"unsafe XML in changelog {path}: {exc}"
+        raise ChangelogParseError(msg) from exc
     except ElementTree.ParseError as exc:
         msg = f"failed to parse changelog XML {path}: {exc}"
         raise ChangelogParseError(msg) from exc
