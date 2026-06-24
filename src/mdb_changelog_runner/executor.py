@@ -54,10 +54,11 @@ class ChangelogExecutor:
             return result
 
         session, should_close = self._open_session()
-        tx = session.begin_transaction()
+        tx = None
         current_changeset: Changeset | None = None
         current_index = 0
         try:
+            tx = session.begin_transaction()
             for current_index, current_changeset in enumerate(changesets, start=1):
                 changeset_start = time.perf_counter()
                 self._logger.info(
@@ -79,7 +80,8 @@ class ChangelogExecutor:
             tx.commit()
             self._logger.info("Changelog runner finished.")
         except Exception as exc:
-            tx.rollback()
+            if tx is not None:
+                tx.rollback()
             self._logger.exception("Error in changelog update")
             failing = (
                 f" at changeSet {current_changeset.id} ({current_index}/{len(changesets)})"

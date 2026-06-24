@@ -56,6 +56,11 @@ class FakeSession:
         self.closed = True
 
 
+class FailingBeginSession(FakeSession):
+    def begin_transaction(self):
+        raise RuntimeError("cannot begin transaction")
+
+
 class FakeDriver:
     def __init__(self, session: FakeSession):
         self._session = session
@@ -116,6 +121,18 @@ def test_execute_rolls_back_and_writes_no_metadata_on_failure(tmp_path):
     assert tx.rolled_back is True
     assert len(tx.runs) == 1
     assert all("_changelog" not in query for query, _ in tx.runs)
+
+
+def test_execute_closes_driver_session_when_begin_transaction_fails(tmp_path):
+    tx = FakeTx()
+    session = FailingBeginSession(tx)
+    executor = ChangelogExecutor(FakeDriver(session))
+
+    with pytest.raises(ChangelogExecutionError, match="failed to execute changelog"):
+        executor.execute(write_changelog(tmp_path), "s3://bucket/changelog.xml")
+
+    assert session.closed is True
+    assert tx.rolled_back is False
 
 
 def test_execute_dry_run_parses_but_does_not_open_transaction(tmp_path):
