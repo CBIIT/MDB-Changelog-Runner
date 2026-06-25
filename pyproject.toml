@@ -8,8 +8,8 @@ authors = [
 ]
 requires-python = ">=3.11"
 dependencies = [
-    "neo4j>=5.0",
-    "python-dateutil>=2.9",
+    "defusedxml>=0.7.1",
+    "neo4j>=4.4,<5.0",
 ]
 
 [build-system]
