@@ -59,6 +59,46 @@ def test_parse_rejects_missing_cypher(tmp_path):
         parse(path)
 
 
+def test_parse_rejects_duplicate_changeset_ids(tmp_path):
+    path = write_changelog(
+        tmp_path,
+        """  <changeSet id="1" author="Alice">
+    <neo4j:cypher>RETURN 1</neo4j:cypher>
+  </changeSet>
+  <changeSet id="1" author="Bob">
+    <neo4j:cypher>RETURN 2</neo4j:cypher>
+  </changeSet>""",
+    )
+
+    with pytest.raises(ChangelogParseError, match="duplicate changeSet id"):
+        parse(path)
+
+
+def test_parse_rejects_missing_author(tmp_path):
+    path = write_changelog(
+        tmp_path,
+        """  <changeSet id="1">
+    <neo4j:cypher>RETURN 1</neo4j:cypher>
+  </changeSet>""",
+    )
+
+    with pytest.raises(ChangelogParseError, match="missing required author"):
+        parse(path)
+
+
+def test_parse_rejects_empty_cypher(tmp_path):
+    path = write_changelog(
+        tmp_path,
+        """  <changeSet id="1" author="Alice">
+    <neo4j:cypher>
+    </neo4j:cypher>
+  </changeSet>""",
+    )
+
+    with pytest.raises(ChangelogParseError, match="empty neo4j:cypher"):
+        parse(path)
+
+
 def test_parse_rejects_invalid_json_params(tmp_path):
     path = write_changelog(
         tmp_path,
@@ -69,6 +109,19 @@ def test_parse_rejects_invalid_json_params(tmp_path):
     )
 
     with pytest.raises(ChangelogParseError, match="invalid JSON params"):
+        parse(path)
+
+
+def test_parse_rejects_non_object_json_params(tmp_path):
+    path = write_changelog(
+        tmp_path,
+        """  <changeSet id="1" author="Alice">
+    <neo4j:cypher>RETURN $value</neo4j:cypher>
+    <mdb:params>["not", "an", "object"]</mdb:params>
+  </changeSet>""",
+    )
+
+    with pytest.raises(ChangelogParseError, match="params must be a JSON object"):
         parse(path)
 
 
