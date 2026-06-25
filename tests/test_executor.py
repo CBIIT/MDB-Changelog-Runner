@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -75,10 +76,15 @@ def write_changelog(tmp_path):
     return path
 
 
-def test_execute_runs_changesets_in_order_without_metadata(tmp_path):
+def test_execute_runs_changesets_in_order_and_records_metadata(tmp_path):
     tx = FakeTx()
     session = FakeSession(tx)
-    executor = ChangelogExecutor(FakeDriver(session))
+    timestamp = datetime(2026, 1, 15, 12, 30, tzinfo=UTC)
+    executor = ChangelogExecutor(
+        FakeDriver(session),
+        deprecate_after=timedelta(days=30),
+        clock=lambda: timestamp,
+    )
 
     result = executor.execute(write_changelog(tmp_path), "s3://bucket/changelog.xml")
 
@@ -89,8 +95,17 @@ def test_execute_runs_changesets_in_order_without_metadata(tmp_path):
     assert session.closed is True
     assert tx.runs[0] == ("CREATE (a:test {handle: $handle})", {"handle": "A"})
     assert tx.runs[1] == ("CREATE (b:test {handle: 'B'})", {})
-    assert len(tx.runs) == 2
-    assert all("_changelog" not in query for query, _ in tx.runs)
+    assert len(tx.runs) == 3
+    metadata_query, metadata_params = tx.runs[2]
+    assert "CREATE (current:_changelog" in metadata_query
+    assert "CREATE (current)-[:prev_changelog]->(previous)" in metadata_query
+    assert metadata_params == {
+        "timestamp": timestamp,
+        "location": "s3://bucket/changelog.xml",
+        "changesets_executed": 2,
+        "authors": ["Alice", "Bob"],
+        "deprecate_after": datetime(2026, 2, 14, 12, 30, tzinfo=UTC),
+    }
 
 
 def test_execute_logs_changeset_and_total_runtime(tmp_path, caplog):

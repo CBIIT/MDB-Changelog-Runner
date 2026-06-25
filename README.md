@@ -73,8 +73,16 @@ already-open session-like object that provides `begin_transaction()`.
 - Each `<changeSet>` must have an `id`, `author`, and `<neo4j:cypher>` element.
 - Changesets run in XML order.
 - All changesets run inside one transaction.
+- After all changesets succeed, one `_changelog` metadata node is written in
+  the same transaction. It records the run timestamp, changelog S3 location,
+  number of executed changesets, unique authors, and a `deprecate_after`
+  timestamp. Timestamp values are passed to Neo4j as Python `datetime` objects.
+- The new `_changelog` node links to the latest existing `_changelog` node with
+  `:prev_changelog` when a previous run exists.
 - If any changeset fails, the transaction is rolled back and
-  `ChangelogExecutionError` is raised.
+  `ChangelogExecutionError` is raised. No metadata is written for failed runs.
 - `dry_run=True` parses the changelog and returns a summary without executing
   Cypher.
-- No `_changelog` metadata node is created by this package yet.
+- By default, `deprecate_after` is 6 months after the run timestamp. Pass a
+  `datetime.timedelta` as `ChangelogExecutor(..., deprecate_after=...)` to
+  override it.
