@@ -101,6 +101,7 @@ class ChangelogExecutor:
                 )
                 self._logger.info("Completed changelog update %d", current_index)
 
+            current_changeset = None
             self._record_metadata(tx, changelog_location, len(changesets), authors)
             tx.commit()
             self._logger.info("Changelog runner finished.")

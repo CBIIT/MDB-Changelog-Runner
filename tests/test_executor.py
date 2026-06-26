@@ -138,6 +138,18 @@ def test_execute_rolls_back_and_writes_no_metadata_on_failure(tmp_path):
     assert all("_changelog" not in query for query, _ in tx.runs)
 
 
+def test_execute_does_not_attribute_metadata_failure_to_last_changeset(tmp_path):
+    tx = FakeTx(fail_on="_changelog")
+    executor = ChangelogExecutor(FakeSession(tx))
+
+    with pytest.raises(ChangelogExecutionError) as exc_info:
+        executor.execute(write_changelog(tmp_path), "s3://bucket/changelog.xml")
+
+    assert "changeSet" not in str(exc_info.value)
+    assert tx.committed is False
+    assert tx.rolled_back is True
+
+
 def test_execute_closes_driver_session_when_begin_transaction_fails(tmp_path):
     tx = FakeTx()
     session = FailingBeginSession(tx)
