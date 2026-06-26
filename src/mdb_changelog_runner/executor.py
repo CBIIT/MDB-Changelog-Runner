@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -10,6 +12,24 @@ from mdb_changelog_runner.parser import parse
 from mdb_changelog_runner.types import ChangelogRunResult, Changeset
 
 LOGGER_NAME = "mdb_changelog_runner"
+DEFAULT_DEPRECATE_AFTER = timedelta(days=180)
+METADATA_QUERY = """
+OPTIONAL MATCH (previous:_changelog)
+WITH previous
+ORDER BY previous.timestamp DESC
+LIMIT 1
+CREATE (current:_changelog {
+  timestamp: $timestamp,
+  location: $location,
+  changesets_executed: $changesets_executed,
+  authors: $authors,
+  deprecate_after: $deprecate_after
+})
+FOREACH (_ IN CASE WHEN previous IS NULL THEN [] ELSE [1] END |
+  CREATE (current)-[:prev_changelog]->(previous)
+)
+RETURN current
+""".strip()
 
 
 class ChangelogExecutor:
@@ -19,9 +39,13 @@ class ChangelogExecutor:
         self,
         driver_or_session: Any,
         logger: logging.Logger | None = None,
+        deprecate_after: timedelta = DEFAULT_DEPRECATE_AFTER,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._driver_or_session = driver_or_session
         self._logger = logger or logging.getLogger(LOGGER_NAME)
+        self._deprecate_after = deprecate_after
+        self._clock = clock or _utc_now
 
     def parse(self, changelog_path: str | Path) -> list[Changeset]:
         """Parse a changelog XML file."""
@@ -77,6 +101,8 @@ class ChangelogExecutor:
                 )
                 self._logger.info("Completed changelog update %d", current_index)
 
+            current_changeset = None
+            self._record_metadata(tx, changelog_location, len(changesets), authors)
             tx.commit()
             self._logger.info("Changelog runner finished.")
         except Exception as exc:
@@ -108,6 +134,27 @@ class ChangelogExecutor:
         self._logger.info("Changelog runner finished.")
         self._logger.info("TOTAL RUN TIME: %.2f seconds", time.perf_counter() - total_start)
 
+    def _record_metadata(
+        self,
+        tx: Any,
+        changelog_location: str,
+        changesets_executed: int,
+        authors: list[str],
+    ) -> None:
+        timestamp = _as_utc(self._clock())
+        deprecate_after = timestamp + self._deprecate_after
+        self._logger.info("Recording _changelog metadata for %s", changelog_location)
+        tx.run(
+            METADATA_QUERY,
+            parameters={
+                "timestamp": timestamp,
+                "location": changelog_location,
+                "changesets_executed": changesets_executed,
+                "authors": authors,
+                "deprecate_after": deprecate_after,
+            },
+        )
+
 
 def _unique_authors(authors: Iterable[str]) -> list[str]:
     seen: set[str] = set()
@@ -118,3 +165,13 @@ def _unique_authors(authors: Iterable[str]) -> list[str]:
         seen.add(author)
         unique.append(author)
     return unique
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
