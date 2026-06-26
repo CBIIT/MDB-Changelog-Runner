@@ -12,7 +12,7 @@ from mdb_changelog_runner.parser import parse
 from mdb_changelog_runner.types import ChangelogRunResult, Changeset
 
 LOGGER_NAME = "mdb_changelog_runner"
-DEFAULT_DEPRECATE_AFTER = timedelta(days=183)
+DEFAULT_DEPRECATE_AFTER = timedelta(days=180)
 METADATA_QUERY = """
 OPTIONAL MATCH (previous:_changelog)
 WITH previous
