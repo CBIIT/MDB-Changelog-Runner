@@ -28,7 +28,7 @@ Existing Liquibase Neo4j changelogs are supported:
   xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
   xmlns:neo4j="http://www.liquibase.org/xml/ns/dbchangelog-ext"
   xmlns:mdb="https://cbiit.github.io/mdb/changelog">
-  <changeSet id="1" author="NWM">
+  <changeSet id="1" author="MDB-runner">
     <neo4j:cypher>CREATE (n:test {handle:'TEST'})</neo4j:cypher>
   </changeSet>
 </databaseChangeLog>
@@ -37,7 +37,7 @@ Existing Liquibase Neo4j changelogs are supported:
 Parameterized Cypher can use MDB JSON params:
 
 ```xml
-<changeSet id="2" author="NWM">
+<changeSet id="2" author="MDB-runner">
   <neo4j:cypher>
     MERGE (n:term {handle: $handle, value: $value})
   </neo4j:cypher>
