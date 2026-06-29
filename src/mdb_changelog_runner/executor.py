@@ -111,14 +111,19 @@ class ChangelogExecutor:
                 self._logger.info("Completed changelog update %d", current_index)
 
             current_changeset = None
-            self._record_metadata(
-                tx,
-                changelog_location,
-                changelog_scope,
-                changelog_scope_path,
-                len(changesets),
-                authors,
-            )
+            if changesets:
+                self._record_metadata(
+                    tx,
+                    changelog_location,
+                    changelog_scope,
+                    changelog_scope_path,
+                    len(changesets),
+                    authors,
+                )
+            else:
+                self._logger.warning(
+                    "Changelog file contains no changesets; no metadata will be recorded",
+                )
             tx.commit()
             self._logger.info("Changelog runner finished.")
         except Exception as exc:

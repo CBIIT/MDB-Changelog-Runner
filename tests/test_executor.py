@@ -23,6 +23,13 @@ CHANGELOG = """<?xml version="1.0" encoding="UTF-8"?>
 </databaseChangeLog>
 """
 
+EMPTY_CHANGELOG = """<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+  xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+  xmlns:neo4j="http://www.liquibase.org/xml/ns/dbchangelog-ext">
+</databaseChangeLog>
+"""
+
 
 class FakeTx:
     def __init__(self, fail_on: str | None = None):
@@ -73,6 +80,12 @@ class FakeDriver:
 def write_changelog(tmp_path):
     path = tmp_path / "changelog.xml"
     path.write_text(CHANGELOG, encoding="utf-8")
+    return path
+
+
+def write_empty_changelog(tmp_path):
+    path = tmp_path / "empty_changelog.xml"
+    path.write_text(EMPTY_CHANGELOG, encoding="utf-8")
     return path
 
 
@@ -150,6 +163,28 @@ def test_execute_allows_metadata_without_scope(tmp_path):
         "authors": ["Alice", "Bob"],
         "deprecate_after": datetime(2026, 7, 14, 12, 30, tzinfo=UTC),
     }
+
+
+def test_execute_skips_metadata_for_empty_changelog(tmp_path, caplog):
+    tx = FakeTx()
+    executor = ChangelogExecutor(FakeSession(tx))
+
+    with caplog.at_level(logging.WARNING, logger="mdb_changelog_runner"):
+        result = executor.execute(
+            write_empty_changelog(tmp_path),
+            "s3://bucket/empty_changelog.xml",
+            changelog_scope="term",
+            changelog_scope_path="term_changelogs",
+        )
+
+    assert result.changesets_executed == 0
+    assert result.authors == ()
+    assert tx.runs == []
+    assert tx.committed is True
+    assert tx.rolled_back is False
+    assert "Changelog file contains no changesets; no metadata will be recorded" in [
+        record.getMessage() for record in caplog.records
+    ]
 
 
 def test_execute_logs_changeset_and_total_runtime(tmp_path, caplog):

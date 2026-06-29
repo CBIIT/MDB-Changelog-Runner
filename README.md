@@ -84,6 +84,7 @@ already-open session-like object that provides `begin_transaction()`.
 - The new `_changelog` node links to the previous matching run with
   `:prev_changelog`. Matching uses scope values when provided, otherwise
   `location`.
+- Empty changelogs do not write `_changelog` metadata.
 - If any changeset fails, the transaction is rolled back and
   `ChangelogExecutionError` is raised. No metadata is written for failed runs.
 - `dry_run=True` parses the changelog and returns a summary without executing
