@@ -15,12 +15,17 @@ LOGGER_NAME = "mdb_changelog_runner"
 DEFAULT_DEPRECATE_AFTER = timedelta(days=180)
 METADATA_QUERY = """
 OPTIONAL MATCH (previous:_changelog)
+WHERE ($scope IS NOT NULL OR $scope_path IS NOT NULL OR previous.location = $location)
+  AND ($scope IS NULL OR previous.scope = $scope)
+  AND ($scope_path IS NULL OR previous.scope_path = $scope_path)
 WITH previous
 ORDER BY previous.timestamp DESC
 LIMIT 1
 CREATE (current:_changelog {
   timestamp: $timestamp,
   location: $location,
+  scope: $scope,
+  scope_path: $scope_path,
   changesets_executed: $changesets_executed,
   authors: $authors,
   deprecate_after: $deprecate_after
@@ -56,6 +61,8 @@ class ChangelogExecutor:
         self,
         changelog_path: str | Path,
         changelog_location: str,
+        changelog_scope: str | None = None,
+        changelog_scope_path: str | None = None,
         *,
         dry_run: bool = False,
     ) -> ChangelogRunResult:
@@ -67,6 +74,8 @@ class ChangelogExecutor:
         authors = _unique_authors(changeset.author for changeset in changesets)
         result = ChangelogRunResult(
             changelog_location=changelog_location,
+            changelog_scope=changelog_scope,
+            changelog_scope_path=changelog_scope_path,
             changesets_executed=len(changesets),
             authors=tuple(authors),
             dry_run=dry_run,
@@ -102,7 +111,14 @@ class ChangelogExecutor:
                 self._logger.info("Completed changelog update %d", current_index)
 
             current_changeset = None
-            self._record_metadata(tx, changelog_location, len(changesets), authors)
+            self._record_metadata(
+                tx,
+                changelog_location,
+                changelog_scope,
+                changelog_scope_path,
+                len(changesets),
+                authors,
+            )
             tx.commit()
             self._logger.info("Changelog runner finished.")
         except Exception as exc:
@@ -138,6 +154,8 @@ class ChangelogExecutor:
         self,
         tx: Any,
         changelog_location: str,
+        changelog_scope: str | None,
+        changelog_scope_path: str | None,
         changesets_executed: int,
         authors: list[str],
     ) -> None:
@@ -149,6 +167,8 @@ class ChangelogExecutor:
             parameters={
                 "timestamp": timestamp,
                 "location": changelog_location,
+                "scope": changelog_scope,
+                "scope_path": changelog_scope_path,
                 "changesets_executed": changesets_executed,
                 "authors": authors,
                 "deprecate_after": deprecate_after,

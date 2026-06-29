@@ -59,7 +59,11 @@ logger = logging.getLogger("mdb_changelog_runner")
 executor = ChangelogExecutor(driver, logger=logger)
 result = executor.execute(
     "local_changelog.xml",
-    "s3://my-bucket/path/local_changelog.xml",
+    "s3://my-bucket/model_changelogs/CTDC/local_changelog.xml",
+    # Optional changelog_scope
+    changelog_scope="model",
+    # Optional changelog_scope_path
+    changelog_scope_path="model_changelogs/CTDC",
 )
 
 print(result.changesets_executed)
@@ -75,10 +79,11 @@ already-open session-like object that provides `begin_transaction()`.
 - All changesets run inside one transaction.
 - After all changesets succeed, one `_changelog` metadata node is written in
   the same transaction. It records the run timestamp, changelog S3 location,
-  number of executed changesets, unique authors, and a `deprecate_after`
-  timestamp. Timestamp values are passed to Neo4j as Python `datetime` objects.
-- The new `_changelog` node links to the latest existing `_changelog` node with
-  `:prev_changelog` when a previous run exists.
+  optional scope values, number of executed changesets, unique authors, and a
+  `deprecate_after` timestamp.
+- The new `_changelog` node links to the previous matching run with
+  `:prev_changelog`. Matching uses scope values when provided, otherwise
+  `location`.
 - If any changeset fails, the transaction is rolled back and
   `ChangelogExecutionError` is raised. No metadata is written for failed runs.
 - `dry_run=True` parses the changelog and returns a summary without executing
