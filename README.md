@@ -28,7 +28,7 @@ Existing Liquibase Neo4j changelogs are supported:
   xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
   xmlns:neo4j="http://www.liquibase.org/xml/ns/dbchangelog-ext"
   xmlns:mdb="https://cbiit.github.io/mdb/changelog">
-  <changeSet id="1" author="NWM">
+  <changeSet id="1" author="MDB-runner">
     <neo4j:cypher>CREATE (n:test {handle:'TEST'})</neo4j:cypher>
   </changeSet>
 </databaseChangeLog>
@@ -37,7 +37,7 @@ Existing Liquibase Neo4j changelogs are supported:
 Parameterized Cypher can use MDB JSON params:
 
 ```xml
-<changeSet id="2" author="NWM">
+<changeSet id="2" author="MDB-runner">
   <neo4j:cypher>
     MERGE (n:term {handle: $handle, value: $value})
   </neo4j:cypher>
@@ -59,7 +59,11 @@ logger = logging.getLogger("mdb_changelog_runner")
 executor = ChangelogExecutor(driver, logger=logger)
 result = executor.execute(
     "local_changelog.xml",
-    "s3://my-bucket/path/local_changelog.xml",
+    "s3://my-bucket/model_changelogs/CTDC/local_changelog.xml",
+    # Optional changelog_scope
+    changelog_scope="model",
+    # Optional changelog_scope_path
+    changelog_scope_path="model_changelogs/CTDC",
 )
 
 print(result.changesets_executed)
@@ -73,8 +77,18 @@ already-open session-like object that provides `begin_transaction()`.
 - Each `<changeSet>` must have an `id`, `author`, and `<neo4j:cypher>` element.
 - Changesets run in XML order.
 - All changesets run inside one transaction.
+- After all changesets succeed, one `_changelog` metadata node is written in
+  the same transaction. It records the run timestamp, changelog S3 location,
+  optional scope values, number of executed changesets, unique authors, and a
+  `deprecate_after` timestamp.
+- The new `_changelog` node links to the previous matching run with
+  `:prev_changelog`. Matching uses scope values when provided, otherwise
+  `location`.
+- Empty changelogs do not write `_changelog` metadata.
 - If any changeset fails, the transaction is rolled back and
-  `ChangelogExecutionError` is raised.
+  `ChangelogExecutionError` is raised. No metadata is written for failed runs.
 - `dry_run=True` parses the changelog and returns a summary without executing
   Cypher.
-- No `_changelog` metadata node is created by this package yet.
+- By default, `deprecate_after` is 6 months after the run timestamp. Pass a
+  `datetime.timedelta` as `ChangelogExecutor(..., deprecate_after=...)` to
+  override it.

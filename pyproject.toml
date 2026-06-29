@@ -1,6 +1,6 @@
 [project]
 name = "mdb-changelog-runner"
-version = "0.1.2"
+version = "1.0.0"
 description = "Lightweight Liquibase-style XML changelog executor for Neo4j/MDB updates"
 readme = "README.md"
 authors = [

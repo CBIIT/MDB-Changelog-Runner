@@ -21,4 +21,6 @@ class ChangelogRunResult:
     changelog_location: str
     changesets_executed: int
     authors: tuple[str, ...]
+    changelog_scope: str | None = None
+    changelog_scope_path: str | None = None
     dry_run: bool = False
