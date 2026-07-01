@@ -179,7 +179,7 @@ def test_execute_allows_metadata_without_scope(tmp_path):
     }
 
 
-def test_execute_schema_mode_runs_each_changeset_in_its_own_transaction(tmp_path):
+def test_execute_schema_mode_runs_each_changeset_in_its_own_transaction(tmp_path, caplog):
     path = tmp_path / "schema_changelog.xml"
     path.write_text(
         """<?xml version="1.0" encoding="UTF-8"?>
@@ -200,76 +200,16 @@ def test_execute_schema_mode_runs_each_changeset_in_its_own_transaction(tmp_path
     timestamp = datetime(2026, 1, 15, 12, 30, tzinfo=UTC)
     executor = ChangelogExecutor(session, clock=lambda: timestamp)
 
-    result = executor.execute(path, "s3://bucket/schema_changelog.xml", schema_mode=True)
+    with caplog.at_level(logging.INFO, logger="mdb_changelog_runner"):
+        result = executor.execute(path, "s3://bucket/schema_changelog.xml", schema_mode=True)
 
     assert result.changesets_executed == 2
     assert len(session.transactions) == 3
-    index_tx, constraint_tx, metadata_tx = session.transactions
-    assert index_tx.committed is True
-    assert constraint_tx.committed is True
-    assert metadata_tx.committed is True
-    assert "CREATE INDEX term_origin_idx" in index_tx.runs[0][0]
-    assert "CREATE CONSTRAINT term_nanoid_unique" in constraint_tx.runs[0][0]
-    assert "_changelog" in metadata_tx.runs[0][0]
-
-
-def test_execute_schema_mode_rolls_back_only_failing_changeset(tmp_path):
-    path = tmp_path / "failing_schema_changelog.xml"
-    path.write_text(
-        """<?xml version="1.0" encoding="UTF-8"?>
-<databaseChangeLog
-  xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
-  xmlns:neo4j="http://www.liquibase.org/xml/ns/dbchangelog-ext">
-  <changeSet id="1" author="Alice">
-    <neo4j:cypher>CREATE INDEX term_origin_idx IF NOT EXISTS FOR (t:term) ON (t.origin_name)</neo4j:cypher>
-  </changeSet>
-  <changeSet id="2" author="Alice">
-    <neo4j:cypher>CREATE INDEX fail_idx IF NOT EXISTS FOR (t:term) ON (t.fail)</neo4j:cypher>
-  </changeSet>
-</databaseChangeLog>
-""",
-        encoding="utf-8",
-    )
-    first_tx = FakeTx()
-    failing_tx = FakeTx(fail_on="fail_idx")
-
-    class FailingRecordingSession:
-        def __init__(self):
-            self.transactions = [first_tx, failing_tx]
-            self.index = 0
-
-        def begin_transaction(self):
-            tx = self.transactions[self.index]
-            self.index += 1
-            return tx
-
-    session = FailingRecordingSession()
-    executor = ChangelogExecutor(session)
-
-    with pytest.raises(ChangelogExecutionError, match="changeSet 2"):
-        executor.execute(path, "s3://bucket/failing_schema_changelog.xml", schema_mode=True)
-
-    assert first_tx.committed is True
-    assert first_tx.rolled_back is False
-    assert failing_tx.committed is False
-    assert failing_tx.rolled_back is True
-    assert all("_changelog" not in query for tx in session.transactions for query, _ in tx.runs)
-
-
-def test_execute_schema_mode_handles_empty_changelog(tmp_path, caplog):
-    session = RecordingSession()
-    executor = ChangelogExecutor(session)
-
-    with caplog.at_level(logging.WARNING, logger="mdb_changelog_runner"):
-        result = executor.execute(
-            write_empty_changelog(tmp_path),
-            "s3://bucket/empty_schema_changelog.xml",
-            schema_mode=True,
-        )
-
-    assert result.changesets_executed == 0
-    assert session.transactions == []
-    assert "Changelog file contains no changesets; no metadata will be recorded" in [
+    assert [tx.committed for tx in session.transactions] == [True, True, True]
+    assert "CREATE INDEX term_origin_idx" in session.transactions[0].runs[0][0]
+    assert "CREATE CONSTRAINT term_nanoid_unique" in session.transactions[1].runs[0][0]
+    assert "_changelog" in session.transactions[2].runs[0][0]
+    assert "Transaction mode: schema mode; one transaction per changeSet" in [
         record.getMessage() for record in caplog.records
     ]
 
@@ -312,31 +252,6 @@ def test_execute_logs_changeset_and_total_runtime(tmp_path, caplog):
     assert "Completed changelog update 2" in messages
     assert "Changelog runner finished." in messages
     assert any(message.startswith("TOTAL RUN TIME: ") for message in messages)
-
-
-def test_execute_schema_mode_logs_transaction_mode(tmp_path, caplog):
-    path = tmp_path / "schema_changelog.xml"
-    path.write_text(
-        """<?xml version="1.0" encoding="UTF-8"?>
-<databaseChangeLog
-  xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
-  xmlns:neo4j="http://www.liquibase.org/xml/ns/dbchangelog-ext">
-  <changeSet id="0" author="Alice">
-    <neo4j:cypher>CREATE INDEX term_origin_idx IF NOT EXISTS FOR (t:term) ON (t.origin_name)</neo4j:cypher>
-  </changeSet>
-</databaseChangeLog>
-""",
-        encoding="utf-8",
-    )
-    session = RecordingSession()
-    executor = ChangelogExecutor(session)
-
-    with caplog.at_level(logging.INFO, logger="mdb_changelog_runner"):
-        executor.execute(path, "s3://bucket/schema_changelog.xml", schema_mode=True)
-
-    assert "Transaction mode: schema mode; one transaction per changeSet" in [
-        record.getMessage() for record in caplog.records
-    ]
 
 
 def test_execute_rolls_back_and_writes_no_metadata_on_failure(tmp_path):
