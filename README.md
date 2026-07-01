@@ -79,10 +79,11 @@ already-open session-like object that provides `begin_transaction()`.
 - Changesets run in XML order.
 - All changesets run inside one transaction unless `schema_mode=True` is used.
 - In schema mode, each changeSet is committed separately.
-- After all changesets succeed, one `_changelog` metadata node is written in
-  the same transaction. It records the run timestamp, changelog S3 location,
-  optional scope values, number of executed changesets, unique authors, and a
-  `deprecate_after` timestamp.
+- After all changesets succeed, one `_changelog` metadata node is written. In
+  single-transaction mode it is written in the same transaction; in schema mode
+  it is written in a final transaction. It records the run timestamp, changelog
+  S3 location, optional scope values, number of executed changesets, unique
+  authors, and a `deprecate_after` timestamp.
 - The new `_changelog` node links to the previous matching run with
   `:prev_changelog`. Matching uses scope values when provided, otherwise
   `location`.

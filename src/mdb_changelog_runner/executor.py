@@ -67,7 +67,12 @@ class ChangelogExecutor:
         dry_run: bool = False,
         schema_mode: bool = False,
     ) -> ChangelogRunResult:
-        """Execute a changelog."""
+        """Execute a changelog.
+
+        By default, all changesets and metadata are committed in one transaction.
+        With schema_mode=True, each changeset is committed separately, followed
+        by a final metadata transaction.
+        """
 
         total_start = time.perf_counter()
         changesets = self.parse(changelog_path)
