@@ -64,6 +64,20 @@ class FakeSession:
         self.closed = True
 
 
+class RecordingSession:
+    def __init__(self):
+        self.transactions: list[FakeTx] = []
+        self.closed = False
+
+    def begin_transaction(self):
+        tx = FakeTx()
+        self.transactions.append(tx)
+        return tx
+
+    def close(self):
+        self.closed = True
+
+
 class FailingBeginSession(FakeSession):
     def begin_transaction(self):
         raise RuntimeError("cannot begin transaction")
@@ -165,6 +179,41 @@ def test_execute_allows_metadata_without_scope(tmp_path):
     }
 
 
+def test_execute_schema_mode_runs_each_changeset_in_its_own_transaction(tmp_path, caplog):
+    path = tmp_path / "schema_changelog.xml"
+    path.write_text(
+        """<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+  xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+  xmlns:neo4j="http://www.liquibase.org/xml/ns/dbchangelog-ext">
+  <changeSet id="0" author="Alice">
+    <neo4j:cypher>CREATE INDEX term_origin_idx IF NOT EXISTS FOR (t:term) ON (t.origin_name)</neo4j:cypher>
+  </changeSet>
+  <changeSet id="1" author="Alice">
+    <neo4j:cypher>CREATE CONSTRAINT term_nanoid_unique IF NOT EXISTS FOR (t:term) REQUIRE t.nanoid IS UNIQUE</neo4j:cypher>
+  </changeSet>
+</databaseChangeLog>
+""",
+        encoding="utf-8",
+    )
+    session = RecordingSession()
+    timestamp = datetime(2026, 1, 15, 12, 30, tzinfo=UTC)
+    executor = ChangelogExecutor(session, clock=lambda: timestamp)
+
+    with caplog.at_level(logging.INFO, logger="mdb_changelog_runner"):
+        result = executor.execute(path, "s3://bucket/schema_changelog.xml", schema_mode=True)
+
+    assert result.changesets_executed == 2
+    assert len(session.transactions) == 3
+    assert [tx.committed for tx in session.transactions] == [True, True, True]
+    assert "CREATE INDEX term_origin_idx" in session.transactions[0].runs[0][0]
+    assert "CREATE CONSTRAINT term_nanoid_unique" in session.transactions[1].runs[0][0]
+    assert "_changelog" in session.transactions[2].runs[0][0]
+    assert "Transaction mode: schema mode; one transaction per changeSet" in [
+        record.getMessage() for record in caplog.records
+    ]
+
+
 def test_execute_skips_metadata_for_empty_changelog(tmp_path, caplog):
     tx = FakeTx()
     executor = ChangelogExecutor(FakeSession(tx))
@@ -196,6 +245,7 @@ def test_execute_logs_changeset_and_total_runtime(tmp_path, caplog):
 
     messages = [record.getMessage() for record in caplog.records]
     assert "Found 2 changesets in changelog file" in messages
+    assert "Transaction mode: single transaction" in messages
     assert any(message.startswith("Changelog 0 took ") for message in messages)
     assert any(message.startswith("Changelog 1 took ") for message in messages)
     assert "Completed changelog update 1" in messages
