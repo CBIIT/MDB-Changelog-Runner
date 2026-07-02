@@ -89,7 +89,6 @@ class ChangelogExecutor:
 
         if dry_run:
             self._logger.warning("Dry run requested; no Cypher will be executed")
-            self._log_finished(total_start)
             return result
 
         session, should_close = self._open_session()
@@ -122,11 +121,6 @@ class ChangelogExecutor:
         ):
             return self._driver_or_session.session(), True
         return self._driver_or_session, False
-
-    def _log_finished(self, total_start: float) -> None:
-        self._logger.info("Changelog runner finished.")
-        self._logger.info("TOTAL RUN TIME: %.2f seconds", time.perf_counter() - total_start)
-
 
 def _unique_authors(authors: Iterable[str]) -> list[str]:
     seen: set[str] = set()
