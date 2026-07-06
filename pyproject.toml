@@ -1,15 +1,18 @@
 [project]
 name = "mdb-changelog-runner"
-version = "1.0.1"
+version = "1.0.2"
 description = "Lightweight Liquibase-style XML changelog executor for Neo4j/MDB updates"
 readme = "README.md"
 authors = [
-    { name = "knockknockyoo", email = "iheaven0129@gmail.com" }
+    { name = "Mark Jensen", email = "mark.jensen@nih.gov" },
+    { name = "David-YuWei", email = "wei.yu@nih.gov" },
+    { name = "knockknockyoo", email = "iheaven0129@gmail.com" },
+    { name = "Tazeen Shaukat", email = "ts1459@georgetown.edu" }
 ]
 requires-python = ">=3.11"
 dependencies = [
     "defusedxml>=0.7.1",
-    "neo4j>=4.4,<5.0",
+    "neo4j>=4.4,<6.0",
 ]
 
 [build-system]
