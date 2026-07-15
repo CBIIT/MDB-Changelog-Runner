@@ -19,7 +19,7 @@ WHERE ($scope IS NOT NULL OR $scope_path IS NOT NULL OR previous.location = $loc
   AND ($scope IS NULL OR previous.scope = $scope)
   AND ($scope_path IS NULL OR previous.scope_path = $scope_path)
 WITH previous
-ORDER BY previous.timestamp DESC
+ORDER BY datetime(toString(previous.timestamp)) DESC
 LIMIT 1
 CREATE (current:_changelog {
   timestamp: $timestamp,
