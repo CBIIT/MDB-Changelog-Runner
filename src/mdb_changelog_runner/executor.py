@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from mdb_changelog_runner.errors import ChangelogExecutionError
 from mdb_changelog_runner.parser import parse
@@ -78,18 +78,19 @@ class ChangelogExecutor:
         changesets = self.parse(changelog_path)
         self._logger.info("Found %d changesets in changelog file", len(changesets))
         authors = _unique_authors(changeset.author for changeset in changesets)
-        result = ChangelogRunResult(
-            changelog_location=changelog_location,
-            changelog_scope=changelog_scope,
-            changelog_scope_path=changelog_scope_path,
-            changesets_executed=len(changesets),
-            authors=tuple(authors),
-            dry_run=dry_run,
-        )
+        warnings: list[str] = []
 
         if dry_run:
             self._logger.warning("Dry run requested; no Cypher will be executed")
-            return result
+            return ChangelogRunResult(
+                changelog_location=changelog_location,
+                changelog_scope=changelog_scope,
+                changelog_scope_path=changelog_scope_path,
+                changesets_executed=len(changesets),
+                authors=tuple(authors),
+                dry_run=True,
+                warnings=(),
+            )
 
         session, should_close = self._open_session()
         try:
@@ -106,14 +107,25 @@ class ChangelogExecutor:
                 changelog_scope=changelog_scope,
                 changelog_scope_path=changelog_scope_path,
                 authors=authors,
+                warnings=warnings,
             )
             self._logger.info("Changelog runner finished.")
         finally:
             if should_close and hasattr(session, "close"):
                 session.close()
-            self._logger.info("TOTAL RUN TIME: %.2f seconds", time.perf_counter() - total_start)
+            self._logger.info(
+                "TOTAL RUN TIME: %.2f seconds", time.perf_counter() - total_start
+            )
 
-        return result
+        return ChangelogRunResult(
+            changelog_location=changelog_location,
+            changelog_scope=changelog_scope,
+            changelog_scope_path=changelog_scope_path,
+            changesets_executed=len(changesets),
+            authors=tuple(authors),
+            dry_run=False,
+            warnings=tuple(warnings),
+        )
 
     def _open_session(self) -> tuple[Any, bool]:
         if hasattr(self._driver_or_session, "session") and callable(
@@ -121,6 +133,7 @@ class ChangelogExecutor:
         ):
             return self._driver_or_session.session(), True
         return self._driver_or_session, False
+
 
 def _unique_authors(authors: Iterable[str]) -> list[str]:
     seen: set[str] = set()
@@ -166,6 +179,7 @@ class _TransactionMode:
         changelog_scope: str | None,
         changelog_scope_path: str | None,
         authors: list[str],
+        warnings: list[str],
     ) -> None:
         if self._is_schema_mode:
             self._run_schema_mode(
@@ -175,6 +189,7 @@ class _TransactionMode:
                 changelog_scope,
                 changelog_scope_path,
                 authors,
+                warnings,
             )
             return
         self._run_general_mode(
@@ -184,6 +199,7 @@ class _TransactionMode:
             changelog_scope,
             changelog_scope_path,
             authors,
+            warnings,
         )
 
     def _run_general_mode(
@@ -194,6 +210,7 @@ class _TransactionMode:
         changelog_scope: str | None,
         changelog_scope_path: str | None,
         authors: list[str],
+        warnings: list[str],
     ) -> None:
         tx = None
         failed_changeset: Changeset | None = None
@@ -219,6 +236,7 @@ class _TransactionMode:
                     changeset,
                     current_index,
                     len(changesets),
+                    warnings,
                 )
 
             failed_changeset = None
@@ -249,6 +267,7 @@ class _TransactionMode:
         changelog_scope: str | None,
         changelog_scope_path: str | None,
         authors: list[str],
+        warnings: list[str],
     ) -> None:
         if not changesets:
             self._logger.warning(
@@ -256,7 +275,9 @@ class _TransactionMode:
             )
             return
 
-        self._logger.info("Transaction mode: schema mode; one transaction per changeSet")
+        self._logger.info(
+            "Transaction mode: schema mode; one transaction per changeSet"
+        )
         tx = None
         failed_changeset: Changeset | None = None
         current_index = 0
@@ -280,6 +301,7 @@ class _TransactionMode:
                     changeset,
                     current_index,
                     len(changesets),
+                    warnings,
                 )
                 tx.commit()
                 tx = None
@@ -306,6 +328,7 @@ class _TransactionMode:
         changeset: Changeset,
         current_index: int,
         total_changesets: int,
+        warnings: list[str],
     ) -> None:
         changeset_start = time.perf_counter()
         self._logger.info(
@@ -315,7 +338,22 @@ class _TransactionMode:
             current_index,
             total_changesets,
         )
-        tx.run(changeset.cypher, parameters=changeset.params)
+        query_result = tx.run(
+            changeset.cypher,
+            parameters=changeset.params,
+        )
+
+        for record in query_result:
+            warning = record.get("warning")
+            if not warning:
+                continue
+
+            warning = str(warning)
+            if warning in warnings:
+                continue
+
+            warnings.append(warning)
+            self._logger.warning("MDB_WARNING: %s", warning)
         changeset_elapsed = time.perf_counter() - changeset_start
         self._logger.info(
             "Changelog %d took %.2f seconds",

@@ -7,7 +7,6 @@ import pytest
 
 from mdb_changelog_runner import ChangelogExecutionError, ChangelogExecutor
 
-
 CHANGELOG = """<?xml version="1.0" encoding="UTF-8"?>
 <databaseChangeLog
   xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
@@ -32,8 +31,13 @@ EMPTY_CHANGELOG = """<?xml version="1.0" encoding="UTF-8"?>
 
 
 class FakeTx:
-    def __init__(self, fail_on: str | None = None):
+    def __init__(
+        self,
+        fail_on: str | None = None,
+        results_by_query: dict[str, list[dict]] | None = None,
+    ):
         self.fail_on = fail_on
+        self.results_by_query = results_by_query or {}
         self.runs: list[tuple[str, dict]] = []
         self.committed = False
         self.rolled_back = False
@@ -43,6 +47,11 @@ class FakeTx:
         if self.fail_on and self.fail_on in query:
             raise RuntimeError("boom")
         self.runs.append((query, params))
+
+        for query_fragment, records in self.results_by_query.items():
+            if query_fragment in query:
+                return records
+
         return []
 
     def commit(self):
@@ -152,6 +161,39 @@ def test_execute_runs_changesets_in_order_and_records_metadata(tmp_path):
         "authors": ["Alice", "Bob"],
         "deprecate_after": datetime(2026, 2, 14, 12, 30, tzinfo=UTC),
     }
+    assert result.warnings == ()
+
+
+def test_execute_collects_logs_and_deduplicates_warnings(tmp_path, caplog):
+    warning = (
+        "EDP CRDC/CRDC_0006/1 referenced by "
+        "TEST/sample/qa_test_missing_edp is not registered in MDB."
+    )
+    tx = FakeTx(
+        results_by_query={
+            "CREATE (a:test": [
+                {"warning": warning},
+                {"warning": warning},
+            ],
+            "CREATE (b:test": [
+                {"warning": None},
+                {"other": "ignored"},
+            ],
+        },
+    )
+    executor = ChangelogExecutor(FakeSession(tx))
+
+    with caplog.at_level(logging.WARNING, logger="mdb_changelog_runner"):
+        result = execute_changelog(executor, tmp_path)
+
+    assert result.warnings == (warning,)
+
+    warning_messages = [
+        record.getMessage()
+        for record in caplog.records
+        if record.getMessage().startswith("MDB_WARNING:")
+    ]
+    assert warning_messages == [f"MDB_WARNING: {warning}"]
 
 
 def test_execute_allows_metadata_without_scope(tmp_path):
@@ -179,7 +221,9 @@ def test_execute_allows_metadata_without_scope(tmp_path):
     }
 
 
-def test_execute_schema_mode_runs_each_changeset_in_its_own_transaction(tmp_path, caplog):
+def test_execute_schema_mode_runs_each_changeset_in_its_own_transaction(
+    tmp_path, caplog
+):
     path = tmp_path / "schema_changelog.xml"
     path.write_text(
         """<?xml version="1.0" encoding="UTF-8"?>
@@ -201,7 +245,9 @@ def test_execute_schema_mode_runs_each_changeset_in_its_own_transaction(tmp_path
     executor = ChangelogExecutor(session, clock=lambda: timestamp)
 
     with caplog.at_level(logging.INFO, logger="mdb_changelog_runner"):
-        result = executor.execute(path, "s3://bucket/schema_changelog.xml", schema_mode=True)
+        result = executor.execute(
+            path, "s3://bucket/schema_changelog.xml", schema_mode=True
+        )
 
     assert result.changesets_executed == 2
     assert len(session.transactions) == 3
@@ -301,3 +347,4 @@ def test_execute_dry_run_parses_but_does_not_open_transaction(tmp_path):
     assert tx.runs == []
     assert tx.committed is False
     assert tx.rolled_back is False
+    assert result.warnings == ()

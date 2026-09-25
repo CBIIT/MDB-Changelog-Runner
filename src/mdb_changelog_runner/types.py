@@ -24,3 +24,4 @@ class ChangelogRunResult:
     changelog_scope: str | None = None
     changelog_scope_path: str | None = None
     dry_run: bool = False
+    warnings: tuple[str, ...] = ()
